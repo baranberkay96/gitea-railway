@@ -6,7 +6,7 @@ Gitea is a lightweight, self-hosted Git service: repositories with pull requests
 
 ## About Hosting Gitea
 
-Gitea needs one web service with persistent storage for repositories and a database. This template runs the official Gitea container image (Gitea plus OpenSSH), stores repositories, LFS objects, attachments and SSH host keys on a Railway volume, and keeps users, issues and pull requests in Postgres on the private network. The web installer is skipped: everything is configured from Railway variables, a secret key is generated at deploy, registration is closed, and the first administrator is created from variables once the server is healthy. SSH clone and push work through a Railway TCP proxy, and the clone URLs Gitea shows already contain the proxy's host and port. Measured on Railway: about 0.25 GB of RAM for Gitea and 0.13 GB for Postgres.
+Gitea needs one web service with persistent storage for repositories and a database. This template runs the official Gitea container image (Gitea plus OpenSSH), stores repositories, LFS objects, attachments and SSH host keys on a Railway volume, and keeps users, issues and pull requests in Postgres on the private network. The web installer is skipped: everything is configured from Railway variables, a secret key is generated at deploy, registration is closed, and the first administrator is created from variables once the server is healthy. SSH clone and push work through a Railway TCP proxy, and the clone URLs Gitea shows already contain the proxy's host and port. Measured on Railway: about 0.23 GB of RAM for Gitea and 0.13 GB for Postgres.
 
 ## Common Use Cases
 
@@ -56,7 +56,7 @@ Invalid values never break the deploy: an unusable or reserved user name (such a
 
 **Gitea Actions.** Actions is enabled in Gitea, but this template has no runner: Gitea's act_runner executes jobs in Docker containers, and Railway services cannot run Docker. Register a runner on a machine or VM you control (Settings → Actions → Runners) to run workflows.
 
-**Resources and plans.** Measured on Railway (Gitea 17.0.2, 2026-11-20): Gitea uses about 0.24 GB of RAM at idle and Postgres about 0.13 GB, so a small instance costs roughly $4-6 a month at Railway's usage prices. Every plan works, Free included; repositories grow the volume, so large or many repositories belong on Hobby or Pro.
+**Resources and plans.** Measured on Railway (Gitea 28.4.0, 2026-11-24): Gitea uses about 0.23 GB of RAM at idle and Postgres about 0.13 GB, so a small instance costs roughly $4-6 a month at Railway's usage prices. Every plan works, Free included; repositories grow the volume, so large or many repositories belong on Hobby or Pro.
 
 **Scaling.** Gitea runs as one replica because repositories live on the service's volume. For more users raise the service's CPU and memory; Postgres can be resized independently.
 

@@ -38,11 +38,11 @@ Market (2026-11): `gitea/gitea` (no tag, SQLite on the volume, installer open) �
 
 ## Resources
 
-Measured on Railway, test project, 2026-11-20 (Gitea 17.0.2, Postgres 18.6):
+Measured on Railway, test project, 2026-11-24 (Gitea 28.4.0, Postgres 18.6):
 
 | Service | Idle RAM | CPU idle |
 |---|---|---|
-| Gitea | 0.24 GB | ~0.01 vCPU |
+| Gitea | 0.22-0.23 GB (0.45 GB peak during first migration) | ~0.001 vCPU |
 | Postgres | 0.11-0.13 GB | ~0 vCPU |
 
 Estimate: ~0.37 GB RAM ≈ $3.7/month + CPU and volumes ≈ **$4-6/month** for a small team. Fits every plan (Free 0.5 GB per service included). Volume grows with repositories.
