@@ -1,0 +1,104 @@
+#!/bin/bash
+# One-shot s6 service: create the first Gitea administrator from Railway variables.
+#
+#   GITEA_ADMIN_USERNAME / GITEA_ADMIN_PASSWORD / GITEA_ADMIN_EMAIL
+#     Used only while the instance has no administrator. After that the account is
+#     managed in Gitea (password changes in the UI survive redeploys).
+#   GITEA_ADMIN_PASSWORD_RESET=true
+#     Set the password of GITEA_ADMIN_USERNAME to GITEA_ADMIN_PASSWORD on this boot
+#     (account recovery). Set it back to false afterwards.
+#
+# Values typed into the deploy form never fail the deploy (STANDARD 8.29): an invalid
+# user name or e-mail falls back to the default with a warning; an unusable password
+# creates no administrator (registration is closed, so nobody else can sign up) and the
+# log says how to fix it. The web server keeps running in every case.
+exec 2>&1
+set -uo pipefail
+
+DEFAULT_USER="gitea-admin"
+DEFAULT_EMAIL="admin@example.com"
+WAIT_SECONDS=1200
+HTTP_PORT="${GITEA__server__HTTP_PORT:-3000}"
+[[ "${HTTP_PORT}" =~ ^[0-9]{1,5}$ ]] || HTTP_PORT=3000
+
+log() { printf '[railway-admin] %s\n' "$*"; }
+
+# Run once per container start: s6 must not restart this service after it exits.
+finish() { s6-svc -O "$(pwd)" 2>/dev/null; exit 0; }
+
+gitea() { (cd /app/gitea && su-exec git /usr/local/bin/gitea "$@"); }
+
+valid_name() {
+  local name="$1"
+  [[ "${name}" =~ ^[A-Za-z0-9]([A-Za-z0-9._-]{0,38}[A-Za-z0-9])?$ ]] || return 1
+  # Names Gitea v28 reserves for routes (models/user/user.go reservedUsernames, case-insensitive).
+  case "${name,,}" in
+    .well-known|api|assets|attachments|avatar|avatars|captcha|explore|favicon.ico|ghost|gitea-actions|issues|login|manifest.json|metrics|milestones|notifications|openapi3.v1.json|org|pulls|repo|repo-avatars|robots.txt|sitemap.xml|ssh_info|swagger.v1.json|user|v2) return 1 ;;
+  esac
+}
+
+wait_for_gitea() {
+  local waited=0
+  until curl -fsS -o /dev/null --max-time 5 "http://127.0.0.1:${HTTP_PORT}/api/healthz"; do
+    if [ "${waited}" -ge "${WAIT_SECONDS}" ]; then
+      log "Gitea did not become healthy within ${WAIT_SECONDS}s; no administrator bootstrap on this boot."
+      finish
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
+main() {
+  local name="${GITEA_ADMIN_USERNAME:-}" email="${GITEA_ADMIN_EMAIL:-}" pass="${GITEA_ADMIN_PASSWORD:-}"
+  local reset="${GITEA_ADMIN_PASSWORD_RESET:-false}" admins out
+
+  if ! valid_name "${name}"; then
+    log "WARNING: GITEA_ADMIN_USERNAME '${name}' is not a usable Gitea user name (letters, digits, . _ -, max 40, not a reserved route name like 'api' or 'user'); using '${DEFAULT_USER}'."
+    name="${DEFAULT_USER}"
+  fi
+  if ! [[ "${email}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+    log "WARNING: GITEA_ADMIN_EMAIL is not an e-mail address; using '${DEFAULT_EMAIL}' (change it later in your Gitea profile)."
+    email="${DEFAULT_EMAIL}"
+  fi
+
+  wait_for_gitea
+
+  if ! admins="$(gitea admin user list --admin 2>&1)"; then
+    log "WARNING: could not list users (${admins##*$'\n'}); no administrator bootstrap on this boot."
+    finish
+  fi
+
+  # Header line + one line per administrator.
+  if [ "$(printf '%s\n' "${admins}" | sed '1d' | grep -c .)" -gt 0 ]; then
+    if [ "${reset,,}" = "true" ]; then
+      if [ "${#pass}" -lt 8 ]; then
+        log "WARNING: GITEA_ADMIN_PASSWORD_RESET=true but GITEA_ADMIN_PASSWORD is shorter than 8 characters; password left unchanged."
+      elif out="$(gitea admin user change-password --username "${name}" --password "${pass}" --must-change-password=false 2>&1)"; then
+        log "Password of '${name}' set from GITEA_ADMIN_PASSWORD. Set GITEA_ADMIN_PASSWORD_RESET back to false."
+      else
+        log "WARNING: password reset for '${name}' failed: ${out##*$'\n'}"
+      fi
+    else
+      log "An administrator already exists; nothing to do (the admin account is managed in Gitea)."
+    fi
+    finish
+  fi
+
+  if [ "${#pass}" -lt 8 ]; then
+    log "NOT creating the administrator: GITEA_ADMIN_PASSWORD must have at least 8 characters. Registration is closed, so the instance stays locked: set a longer GITEA_ADMIN_PASSWORD and redeploy."
+    finish
+  fi
+
+  if out="$(gitea admin user create --admin --username "${name}" --password "${pass}" --email "${email}" --must-change-password=false 2>&1)"; then
+    log "Administrator '${name}' created. Sign in with GITEA_ADMIN_PASSWORD."
+  elif [ "${name}" != "${DEFAULT_USER}" ] && out="$(gitea admin user create --admin --username "${DEFAULT_USER}" --password "${pass}" --email "${email}" --must-change-password=false 2>&1)"; then
+    log "WARNING: Gitea refused the name '${name}'; administrator '${DEFAULT_USER}' created instead."
+  else
+    log "WARNING: administrator not created: ${out##*$'\n'}"
+    log "Fix GITEA_ADMIN_USERNAME / GITEA_ADMIN_PASSWORD / GITEA_ADMIN_EMAIL and redeploy; registration stays closed meanwhile."
+  fi
+  finish
+}
+
+main
